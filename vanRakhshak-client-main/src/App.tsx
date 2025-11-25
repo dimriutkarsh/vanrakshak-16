@@ -12,6 +12,7 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import AffectedAreas from "./pages/AffectedAreas";
+import FireVerification from "./pages/FireVerification";
 
 const queryClient = new QueryClient();
 
@@ -28,12 +29,17 @@ const App = () => {
               <main className="flex-1">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/sensors" element={<SensorStatus />} />
+                  <Route path="/sensor-status" element={<SensorStatus />} />
                   <Route path="/monitoring" element={<LiveMonitoring />} />
                   <Route path="/monitoring/:sensorId" element={<LiveMonitoring />} />
+                  <Route path="/live-monitoring" element={<LiveMonitoring />} />
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/settings" element={<Settings />} />
-                   <Route path="/affected-areas" element={<AffectedAreas/>} />
+                  <Route path="/affected-areas" element={<AffectedAreas />} />
+                  <Route path="/fire-verification" element={<FireVerification />} />
+                  <Route path="/fire-verification/:sensorId" element={<FireVerification />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>

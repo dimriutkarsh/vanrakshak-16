@@ -6,7 +6,29 @@ import { getWeatherData, type WeatherData as ApiWeatherData } from '@/api/weathe
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { LogOut, Thermometer, Droplets, Wind, AlertTriangle, Clock, MapPin, Monitor, Flame, RefreshCw, Activity, BarChart3, Brain, CheckCircle, XCircle, Loader2, Shield, Satellite, Cpu, Navigation } from 'lucide-react';
+import { 
+  LogOut, 
+  Thermometer, 
+  Droplets, 
+  Wind, 
+  AlertTriangle, 
+  Clock, 
+  MapPin, 
+  Monitor, 
+  Flame, 
+  RefreshCw, 
+  Activity, 
+  Brain, 
+  CheckCircle, 
+  XCircle, 
+  Loader2, 
+  Shield, 
+  Satellite, 
+  Cpu, 
+  Navigation,
+  Verified,
+  AlertCircle
+} from 'lucide-react';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { useParams, useNavigate } from 'react-router-dom';
 import { SensorData } from '@/types/sensor';
@@ -55,17 +77,20 @@ interface MLPrediction {
   id: string;
   timestamp: string;
   input_data: {
-    temp: number;
+    temperature: number;
     humidity: number;
     smoke: number;
-    current_temp: number;
-    feels_like: number;
+    temp_max: number;
+    temp_min: number;
     wind_speed: number;
     wind_gust: number;
-    pressure: number;
   };
-  prediction: boolean;
-  confidence: number;
+  prediction: number;
+  level: string;
+  emoji: string;
+  message: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
   status: 'processing' | 'completed' | 'failed';
 }
 
@@ -89,36 +114,39 @@ interface FireAlertSession {
   mlConfirmed: boolean;
 }
 
-// ML Prediction API (Replace with actual API)
+// REAL ML Prediction API Call
 const predictFireWithML = async (data: {
-  temp: number;
+  temperature: number;
   humidity: number;
   smoke: number;
-  current_temp: number;
-  feels_like: number;
+  temp_max: number;
+  temp_min: number;
   wind_speed: number;
   wind_gust: number;
-  pressure: number;
-}): Promise<{ prediction: boolean; confidence: number }> => {
-  // Simulate API delay - replace this with your actual ML API call
-  await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000));
-  
-  // Enhanced ML prediction logic using actual weather data
-  const fireProbability = 
-    (data.temp > 35 ? 0.25 : 0) +
-    (data.smoke > 50 ? 0.35 : 0) +
-    (data.humidity < 30 ? 0.15 : 0) +
-    (data.wind_speed > 15 ? 0.1 : 0) +
-    (data.current_temp > 30 ? 0.1 : 0) +
-    (data.pressure < 1000 ? 0.05 : 0);
-  
-  const prediction = fireProbability > 0.5;
-  const confidence = prediction ? fireProbability : 1 - fireProbability;
-  
-  return { prediction, confidence: Math.round(confidence * 100) };
+}): Promise<{
+  prediction: number;
+  level: string;
+  emoji: string;
+  message: string;
+  probabilities?: Record<string, number>;
+}> => {
+  const response = await fetch('https://forest-fire-api2.onrender.com/predict', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error(`ML API error: ${response.status}`);
+  }
+
+  const result = await response.json();
+  return result;
 };
 
-// Convert API data to SensorData format - SIMPLIFIED to use raw data
+// Convert API data to SensorData format
 const convertApiToSensorData = (apiDevices: any[]): SensorData[] => {
   if (!apiDevices || !Array.isArray(apiDevices)) return [];
 
@@ -142,7 +170,7 @@ const convertApiToSensorData = (apiDevices: any[]): SensorData[] => {
   });
 };
 
-// Process weather data - SIMPLIFIED to use raw data directly
+// Process weather data
 const processWeatherData = (weatherData: ApiWeatherData): WeatherData => {
   return {
     temp: weatherData.temp,
@@ -165,8 +193,8 @@ const processReadingWithWeather = (reading: SensorReading, weather: WeatherData 
   return {
     ...reading,
     weatherData: {
-      temp_max: weather.temp + 5, // Example calculation - adjust based on your actual data
-      temp_min: weather.temp - 5, // Example calculation - adjust based on your actual data
+      temp_max: weather.temp + 5,
+      temp_min: weather.temp - 5,
       wind_speed: weather.wind_speed,
       wind_gust: weather.wind_gust || 0,
       current_temp: weather.temp,
@@ -192,6 +220,7 @@ const LiveMonitoring: React.FC = () => {
   const [isMlProcessing, setIsMlProcessing] = useState<boolean>(false);
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [isLoadingWeather, setIsLoadingWeather] = useState<boolean>(false);
+  const [showVerificationButton, setShowVerificationButton] = useState<boolean>(false);
   const { sensorId } = useParams();
   const navigate = useNavigate();
 
@@ -204,7 +233,7 @@ const LiveMonitoring: React.FC = () => {
   } = useQuery({
     queryKey: ['allFireAlerts'],
     queryFn: getFireAlerts,
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: 10000,
   });
 
   // Convert API data to sensor format
@@ -220,7 +249,7 @@ const LiveMonitoring: React.FC = () => {
     }
   }, [sensorId]);
 
-  // Fetch data for the selected sensor - SIMPLIFIED to use raw data directly
+  // Fetch data for the selected sensor
   const { 
     data: apiResponse, 
     isLoading: isLoadingSensor, 
@@ -229,7 +258,7 @@ const LiveMonitoring: React.FC = () => {
   } = useQuery({
     queryKey: ['fireAlerts', selectedSensorId],
     queryFn: () => selectedSensorId ? getFireAlertByDeviceId(selectedSensorId) : null,
-    refetchInterval: 5000, // Refresh every 5 seconds for live data
+    refetchInterval: 5000,
     enabled: !!selectedSensorId,
   });
 
@@ -265,28 +294,29 @@ const LiveMonitoring: React.FC = () => {
     );
   }, []);
 
-  // Process ML prediction for a reading
+  // Process REAL ML prediction for a reading
   const processMlPrediction = useCallback(async (reading: SensorReading, weather: WeatherData | null) => {
-    if (!weather) return;
+    if (!weather || !reading.weatherData) return;
 
     const predictionId = `ml-${Date.now()}`;
     
-    // Add processing prediction with actual weather data
+    // Add processing prediction
     const processingPrediction: MLPrediction = {
       id: predictionId,
       timestamp: new Date().toISOString(),
       input_data: {
-        temp: reading.temp,
+        temperature: reading.temp,
         humidity: reading.humidity,
         smoke: reading.smoke,
-        current_temp: weather.temp,
-        feels_like: weather.feels_like,
-        wind_speed: weather.wind_speed,
-        wind_gust: weather.wind_gust || 0,
-        pressure: weather.pressure
+        temp_max: reading.weatherData.temp_max,
+        temp_min: reading.weatherData.temp_min,
+        wind_speed: reading.weatherData.wind_speed,
+        wind_gust: reading.weatherData.wind_gust
       },
-      prediction: false,
-      confidence: 0,
+      prediction: 0,
+      level: 'Processing',
+      emoji: '⏳',
+      message: 'Analyzing data...',
       status: 'processing'
     };
 
@@ -299,7 +329,10 @@ const LiveMonitoring: React.FC = () => {
       const completedPrediction: MLPrediction = {
         ...processingPrediction,
         prediction: result.prediction,
-        confidence: result.confidence,
+        level: result.level,
+        emoji: result.emoji,
+        message: result.message,
+        probabilities: result.probabilities,
         status: 'completed'
       };
 
@@ -309,8 +342,12 @@ const LiveMonitoring: React.FC = () => {
 
       return completedPrediction;
     } catch (error) {
+      console.error('ML Prediction error:', error);
       const failedPrediction: MLPrediction = {
         ...processingPrediction,
+        level: 'Error',
+        emoji: '❌',
+        message: 'Failed to analyze data',
         status: 'failed'
       };
 
@@ -324,11 +361,9 @@ const LiveMonitoring: React.FC = () => {
     }
   }, []);
 
-  // Convert API data to sensor format and store readings history - SIMPLIFIED
+  // Convert API data to sensor format and store readings history
   useEffect(() => {
     if (apiResponse && selectedSensorId) {
-      console.log('Raw API Response:', apiResponse); // Debug log
-      
       const newReading: SensorReading = {
         id: apiResponse.id || Date.now().toString(),
         deviceId: apiResponse.deviceId,
@@ -356,9 +391,9 @@ const LiveMonitoring: React.FC = () => {
         const updatedReadings = [enhancedReading, ...prev].slice(0, 20);
         setLastUpdate(new Date());
         
-        // Trigger ML prediction for fire alerts or high-risk readings
-        if ((newReading.isFire || newReading.temp > 35 || newReading.smoke > 50) && weatherData) {
-          processMlPrediction(newReading, weatherData);
+        // Trigger ML prediction for ALL readings to get real ML analysis
+        if (weatherData && enhancedReading.weatherData) {
+          processMlPrediction(enhancedReading, weatherData);
         }
         
         return updatedReadings;
@@ -374,7 +409,37 @@ const LiveMonitoring: React.FC = () => {
     }
   }, [selectedSensorId, sensorReadings, fetchWeatherData]);
 
-  // Handle session tracking with ML integration
+  // Show verification button ONLY when API indicates fire or ML confirms
+  useEffect(() => {
+    if (sensorReadings.length > 0) {
+      const latestReading = sensorReadings[0];
+      
+      // Check if API indicates fire OR latest ML prediction indicates fire (prediction === 1)
+      const latestMlPrediction = mlPredictions[0];
+      const mlIndicatesFire = latestMlPrediction?.status === 'completed' && latestMlPrediction.prediction === 1;
+      
+      const shouldShowVerification = latestReading.isFire || mlIndicatesFire;
+      
+      setShowVerificationButton(shouldShowVerification);
+      
+      // Auto-hide after 30 seconds if conditions return to normal
+      if (shouldShowVerification) {
+        const timer = setTimeout(() => {
+          const currentLatest = sensorReadings[0];
+          const currentLatestMl = mlPredictions[0];
+          const currentMlIndicatesFire = currentLatestMl?.status === 'completed' && currentLatestMl.prediction === 1;
+          
+          if (!currentLatest.isFire && !currentMlIndicatesFire) {
+            setShowVerificationButton(false);
+          }
+        }, 30000);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [sensorReadings, mlPredictions]);
+
+  // Handle session tracking with REAL ML integration
   useEffect(() => {
     if (sensorReadings.length > 0 && weatherData) {
       const latestReading = sensorReadings[0];
@@ -396,13 +461,16 @@ const LiveMonitoring: React.FC = () => {
       
       // Check ML predictions for this device
       const recentMlPredictions = mlPredictions.filter(pred => 
-        pred.input_data.temp === latestReading.temp &&
+        pred.input_data.temperature === latestReading.temp &&
         pred.input_data.humidity === latestReading.humidity &&
         pred.input_data.smoke === latestReading.smoke &&
         pred.status === 'completed'
       );
 
-      const mlConfirmed = recentMlPredictions.some(pred => pred.prediction);
+      // ML confirms fire if prediction === 1
+      const mlConfirmed = recentMlPredictions.some(pred => pred.prediction === 1);
+      
+      // Start session only if API indicates fire OR ML confirms fire
       const shouldStartSession = latestReading.isFire || mlConfirmed;
       
       if (shouldStartSession && !currentSession) {
@@ -480,7 +548,6 @@ const LiveMonitoring: React.FC = () => {
     await refetchSensor();
     await refetchSensors();
     
-    // Refresh weather data if we have a selected sensor
     if (selectedSensorId && sensorReadings.length > 0) {
       const latestReading = sensorReadings[0];
       await fetchWeatherData(latestReading.latitude, latestReading.longitude);
@@ -490,21 +557,33 @@ const LiveMonitoring: React.FC = () => {
     setTimeout(() => setIsRefreshing(false), 1000);
   };
 
+  const handleFireVerification = () => {
+    if (sensorReadings.length > 0) {
+      navigate('/fire-verification', { 
+        state: { 
+          sensorData: sensorReadings[0],
+          sensorId: selectedSensorId,
+          mlPredictions: mlPredictions
+        } 
+      });
+    } else {
+      navigate('/fire-verification');
+    }
+  };
+
+  // UPDATED: Only use API's isFire field for status
   const getStatusColor = (sensor: SensorReading) => {
     if (sensor.isFire) return 'text-red-600';
-    if (sensor.temp > 35 || sensor.smoke > 50) return 'text-yellow-600';
     return 'text-green-600';
   };
 
   const getStatusText = (sensor: SensorReading) => {
     if (sensor.isFire) return 'FIRE DETECTED';
-    if (sensor.temp > 35 || sensor.smoke > 50) return 'WARNING';
     return 'NORMAL';
   };
 
   const getStatusBadgeVariant = (sensor: SensorReading) => {
     if (sensor.isFire) return 'destructive';
-    if (sensor.temp > 35 || sensor.smoke > 50) return 'secondary';
     return 'default';
   };
 
@@ -639,6 +718,19 @@ const LiveMonitoring: React.FC = () => {
             Affecting Areas
           </Button>
 
+          {/* Fire Verification Button - Shows during alerts */}
+          {showVerificationButton && (
+            <Button
+              variant="default"
+              size="sm"
+              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-lg transition-all duration-200 animate-pulse"
+              onClick={handleFireVerification}
+            >
+              <Verified className="w-4 h-4 mr-2" />
+              Verify Fire Alert
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="sm"
@@ -653,6 +745,36 @@ const LiveMonitoring: React.FC = () => {
 
       {/* Enhanced Main Content */}
       <main className="p-6 space-y-6 max-w-7xl mx-auto">
+        {/* Alert Banner - Shows when verification is available */}
+        {showVerificationButton && (
+          <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 rounded-xl shadow-lg animate-pulse">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-6 h-6" />
+                <div>
+                  <h3 className="font-bold text-lg">Fire Alert Detected!</h3>
+                  <p className="text-orange-100">
+                    {latestReading?.isFire 
+                      ? `Fire detected by sensor ${latestReading.deviceId}.` 
+                      : `AI analysis indicates fire risk for sensor ${latestReading?.deviceId}.`
+                    }
+                    Click "Verify Fire Alert" for comprehensive analysis.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="bg-white text-red-600 hover:bg-white/90 font-semibold"
+                onClick={handleFireVerification}
+              >
+                <Verified className="w-4 h-4 mr-2" />
+                Verify Now
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Enhanced Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
           <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300 group">
@@ -715,9 +837,11 @@ const LiveMonitoring: React.FC = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-slate-800">{mlPredictions.filter(p => p.status === 'completed').length}</div>
+              <div className="text-2xl font-bold text-slate-800">
+                {mlPredictions.filter(p => p.status === 'completed' && p.prediction === 1).length}
+              </div>
               <div className="text-xs text-slate-500">
-                {isMlProcessing ? 'Processing...' : `${mlPredictions.length} total predictions`}
+                {isMlProcessing ? 'Processing...' : 'Fire predictions'}
               </div>
             </CardContent>
           </Card>
@@ -878,9 +1002,6 @@ const LiveMonitoring: React.FC = () => {
                       <Thermometer className="w-5 h-5 text-red-500" />
                       Temperature
                     </CardTitle>
-                    {latestReading.temp > 35 && (
-                      <AlertTriangle className="w-4 h-4 text-red-500" />
-                    )}
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-bold text-slate-800">{latestReading.temp}°C</div>
@@ -888,9 +1009,6 @@ const LiveMonitoring: React.FC = () => {
                       value={Math.min(latestReading.temp, 100)} 
                       className="h-2 mt-3 bg-slate-200"
                     />
-                    <div className="text-sm text-slate-600 mt-2">
-                      {latestReading.temp > 35 ? '🔥 Above normal range' : '✅ Normal range'}
-                    </div>
                   </CardContent>
                 </Card>
 
@@ -900,9 +1018,6 @@ const LiveMonitoring: React.FC = () => {
                       <Droplets className="w-5 h-5 text-blue-500" />
                       Humidity
                     </CardTitle>
-                    {latestReading.humidity < 30 && (
-                      <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    )}
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-bold text-slate-800">{latestReading.humidity}%</div>
@@ -910,9 +1025,6 @@ const LiveMonitoring: React.FC = () => {
                       value={latestReading.humidity} 
                       className="h-2 mt-3 bg-slate-200"
                     />
-                    <div className="text-sm text-slate-600 mt-2">
-                      {latestReading.humidity < 30 ? '⚠️ Low humidity' : '✅ Normal range'}
-                    </div>
                   </CardContent>
                 </Card>
 
@@ -922,9 +1034,6 @@ const LiveMonitoring: React.FC = () => {
                       <Wind className="w-5 h-5 text-slate-500" />
                       Smoke Level
                     </CardTitle>
-                    {latestReading.smoke > 50 && (
-                      <AlertTriangle className="w-4 h-4 text-orange-500" />
-                    )}
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-bold text-slate-800">{latestReading.smoke} ppm</div>
@@ -932,9 +1041,6 @@ const LiveMonitoring: React.FC = () => {
                       value={Math.min(latestReading.smoke, 100)} 
                       className="h-2 mt-3 bg-slate-200"
                     />
-                    <div className="text-sm text-slate-600 mt-2">
-                      {latestReading.smoke > 50 ? '⚠️ Elevated levels' : '✅ Normal levels'}
-                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -981,22 +1087,35 @@ const LiveMonitoring: React.FC = () => {
                 </div>
               )}
 
-              {/* Show Possible Affected Areas Button */}
-              <div className="flex justify-center mt-6">
+              {/* Action Buttons Section */}
+              <div className="flex flex-col sm:flex-row gap-4 justify-center mt-6">
+                {/* Show Possible Affected Areas Button */}
                 <Button
                   onClick={handleAffectingAreas}
-                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105"
+                  className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105"
                   size="lg"
                 >
                   <Navigation className="w-5 h-5 mr-2" />
                   Show Possible Affected Areas
                 </Button>
+
+                {/* Fire Verification Button - Prominent during alerts */}
+                {showVerificationButton && (
+                  <Button
+                    onClick={handleFireVerification}
+                    className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 animate-pulse"
+                    size="lg"
+                  >
+                    <Verified className="w-5 h-5 mr-2" />
+                    Verify Fire Alert
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* ML Prediction Analysis Section - Enhanced */}
+        {/* REAL ML Prediction Analysis Section */}
         {(isMlProcessing || mlPredictions.length > 0) && (
           <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl">
             <CardHeader className="pb-4">
@@ -1008,7 +1127,7 @@ const LiveMonitoring: React.FC = () => {
                   <div>
                     <CardTitle className="text-xl font-bold text-slate-800">AI Fire Detection Analysis</CardTitle>
                     <div className="text-sm text-slate-600">
-                      Machine learning model analyzing environmental data
+                      Real ML model analyzing environmental data
                     </div>
                   </div>
                 </div>
@@ -1026,42 +1145,40 @@ const LiveMonitoring: React.FC = () => {
                 <div className={`p-5 rounded-xl border-2 transition-all duration-300 ${
                   latestMlPrediction.status === 'processing' 
                     ? 'border-purple-300 bg-purple-50/50 animate-pulse' 
-                    : latestMlPrediction.prediction
+                    : latestMlPrediction.prediction === 1
                     ? 'border-red-300 bg-red-50/50'
+                    : latestMlPrediction.prediction === 2
+                    ? 'border-amber-300 bg-amber-50/50'
                     : 'border-emerald-300 bg-emerald-50/50'
                 }`}>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       {latestMlPrediction.status === 'processing' ? (
                         <Loader2 className="w-6 h-6 text-purple-600 animate-spin" />
-                      ) : latestMlPrediction.prediction ? (
+                      ) : latestMlPrediction.prediction === 1 ? (
                         <XCircle className="w-6 h-6 text-red-600" />
+                      ) : latestMlPrediction.prediction === 2 ? (
+                        <AlertTriangle className="w-6 h-6 text-amber-600" />
                       ) : (
                         <CheckCircle className="w-6 h-6 text-emerald-600" />
                       )}
                       <div>
                         <h3 className="font-semibold text-lg text-slate-800">
-                          {latestMlPrediction.status === 'processing' 
-                            ? 'AI Analysis in Progress' 
-                            : latestMlPrediction.prediction
-                            ? 'Fire Risk Detected'
-                            : 'No Fire Risk'
-                          }
+                          {latestMlPrediction.level} {latestMlPrediction.emoji}
                         </h3>
                         <div className="text-sm text-slate-600">
-                          {latestMlPrediction.status === 'processing' 
-                            ? 'Analyzing sensor and weather data...'
-                            : `Confidence: ${latestMlPrediction.confidence}%`
-                          }
+                          {latestMlPrediction.message}
                         </div>
                       </div>
                     </div>
                     <Badge className={
                       latestMlPrediction.status === 'processing' ? 'bg-purple-500' :
-                      latestMlPrediction.prediction ? 'bg-red-500' : 'bg-emerald-500'
+                      latestMlPrediction.prediction === 1 ? 'bg-red-500' : 
+                      latestMlPrediction.prediction === 2 ? 'bg-amber-500' : 'bg-emerald-500'
                     }>
                       {latestMlPrediction.status === 'processing' ? 'PROCESSING' :
-                       latestMlPrediction.prediction ? 'HIGH RISK' : 'LOW RISK'}
+                       latestMlPrediction.prediction === 1 ? 'HIGH RISK' :
+                       latestMlPrediction.prediction === 2 ? 'BORDERLINE' : 'LOW RISK'}
                     </Badge>
                   </div>
                   
@@ -1073,16 +1190,28 @@ const LiveMonitoring: React.FC = () => {
                           <span className="font-medium text-slate-800">{formatTimestamp(latestMlPrediction.timestamp)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-600">Confidence Level:</span>
-                          <span className="font-medium text-slate-800">{latestMlPrediction.confidence}%</span>
+                          <span className="text-slate-600">Risk Level:</span>
+                          <span className="font-medium text-slate-800">{latestMlPrediction.level}</span>
                         </div>
+                        {latestMlPrediction.probabilities && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Confidence:</span>
+                            <span className="font-medium text-slate-800">
+                              {Math.max(...Object.values(latestMlPrediction.probabilities)) * 100}%
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <Progress 
-                        value={latestMlPrediction.confidence} 
-                        className={`h-2 ${
-                          latestMlPrediction.prediction ? 'bg-red-200' : 'bg-emerald-200'
-                        }`}
-                      />
+                      {latestMlPrediction.probabilities && (
+                        <div className="space-y-1">
+                          {Object.entries(latestMlPrediction.probabilities).map(([key, value]) => (
+                            <div key={key} className="flex justify-between text-xs">
+                              <span className="text-slate-600">Class {key}:</span>
+                              <span className="font-medium text-slate-800">{(value * 100).toFixed(1)}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1101,7 +1230,7 @@ const LiveMonitoring: React.FC = () => {
                         Sensor Temp
                       </div>
                       <div className="text-lg font-bold text-slate-800">
-                        {latestMlPrediction.input_data.temp}°C
+                        {latestMlPrediction.input_data.temperature}°C
                       </div>
                     </div>
                     <div className="text-center p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -1122,18 +1251,18 @@ const LiveMonitoring: React.FC = () => {
                     </div>
                     <div className="text-center p-3 bg-slate-50 rounded-lg border border-slate-200">
                       <div className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-1">
-                        Air Temp
+                        Max Temp
                       </div>
                       <div className="text-lg font-bold text-slate-800">
-                        {latestMlPrediction.input_data.current_temp}°C
+                        {latestMlPrediction.input_data.temp_max}°C
                       </div>
                     </div>
                     <div className="text-center p-3 bg-slate-50 rounded-lg border border-slate-200">
                       <div className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-1">
-                        Feels Like
+                        Min Temp
                       </div>
                       <div className="text-lg font-bold text-slate-800">
-                        {latestMlPrediction.input_data.feels_like}°C
+                        {latestMlPrediction.input_data.temp_min}°C
                       </div>
                     </div>
                     <div className="text-center p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -1152,14 +1281,6 @@ const LiveMonitoring: React.FC = () => {
                         {latestMlPrediction.input_data.wind_gust} m/s
                       </div>
                     </div>
-                    <div className="text-center p-3 bg-slate-50 rounded-lg border border-slate-200">
-                      <div className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-1">
-                        Pressure
-                      </div>
-                      <div className="text-lg font-bold text-slate-800">
-                        {latestMlPrediction.input_data.pressure} hPa
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}
@@ -1171,13 +1292,17 @@ const LiveMonitoring: React.FC = () => {
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {mlPredictions.slice(1).map((prediction) => (
                       <div key={prediction.id} className={`p-3 rounded-lg border transition-all duration-200 ${
-                        prediction.prediction ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'
+                        prediction.prediction === 1 ? 'bg-red-50 border-red-200' : 
+                        prediction.prediction === 2 ? 'bg-amber-50 border-amber-200' : 
+                        'bg-emerald-50 border-emerald-200'
                       }`}>
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-2">
                             {prediction.status === 'completed' ? (
-                              prediction.prediction ? (
+                              prediction.prediction === 1 ? (
                                 <XCircle className="w-4 h-4 text-red-600" />
+                              ) : prediction.prediction === 2 ? (
+                                <AlertTriangle className="w-4 h-4 text-amber-600" />
                               ) : (
                                 <CheckCircle className="w-4 h-4 text-emerald-600" />
                               )
@@ -1185,8 +1310,7 @@ const LiveMonitoring: React.FC = () => {
                               <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
                             )}
                             <span className="font-medium text-slate-800">
-                              {prediction.prediction ? 'Fire Risk' : 'No Risk'} 
-                              {prediction.status === 'completed' && ` (${prediction.confidence}%)`}
+                              {prediction.level} {prediction.emoji}
                             </span>
                           </div>
                           <span className="text-sm text-slate-500">
@@ -1230,8 +1354,6 @@ const LiveMonitoring: React.FC = () => {
                       className={`p-4 rounded-xl border transition-all duration-200 hover:shadow-md ${
                         reading.isFire 
                           ? 'bg-red-50 border-red-200 animate-pulse' 
-                          : reading.temp > 35 || reading.smoke > 50
-                          ? 'bg-amber-50 border-amber-200'
                           : 'bg-white border-slate-200'
                       }`}
                     >
